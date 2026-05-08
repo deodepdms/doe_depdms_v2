@@ -1927,22 +1927,53 @@ async function pasteFromClipboard(section) {
   let filled = 0;
 
   if (section === 'mor-ur') {
-    // UR: up to 7 rows × 29-32 numeric columns
+    // UR paste strategy:
+    // - Row 0 (ri=0) has TRIGGER inputs — fill them and call urAutoFill manually
+    //   so rows 1-6 auto-fill correctly
+    // - Rows 1-6 that have their own editable inputs get filled too
+    // - Readonly (auto) inputs are skipped
     const inputRows = document.querySelectorAll('#ur-body tr:not(.eof)');
+
     dataRows.forEach((cells, ri) => {
       if (ri >= inputRows.length) return;
-      const inputs = inputRows[ri].querySelectorAll('input:not([readonly])');
-      let ci = 0;
+      const tr = inputRows[ri];
+      // Get ALL inputs in this row (including triggers)
+      const allInputs = tr.querySelectorAll('input');
+      // Only editable ones (not readonly)
+      const editableInputs = tr.querySelectorAll('input:not([readonly])');
+
+      let ei = 0; // index into editableInputs
       cells.forEach(cell => {
         const val = cell.trim().replace(/,/g,'');
         if (val === '' || isNaN(parseFloat(val))) return;
-        if (ci < inputs.length) {
-          inputs[ci].value = val;
-          inputs[ci].dispatchEvent(new Event('input'));
-          ci++; filled++;
+        if (ei < editableInputs.length) {
+          const inp = editableInputs[ei];
+          inp.value = val;
+          // Fire oninput attribute handler (urAutoFill) if it exists
+          const onInputAttr = inp.getAttribute('oninput');
+          if (onInputAttr) {
+            try { eval(onInputAttr.replace('this', 'inp')); } catch(e) {}
+            // Also dispatch so clearErr runs
+            inp.dispatchEvent(new InputEvent('input', {bubbles:true}));
+          } else {
+            inp.dispatchEvent(new InputEvent('input', {bubbles:true}));
+          }
+          ei++; filled++;
         }
       });
     });
+
+    // After filling row 0 triggers, re-fire urAutoFill for each trigger col
+    // to make sure rows 1-6 are all updated
+    const row0 = inputRows[0];
+    if (row0) {
+      row0.querySelectorAll('input[oninput]').forEach(inp => {
+        const attr = inp.getAttribute('oninput');
+        if (attr && attr.includes('urAutoFill')) {
+          try { eval(attr.replace('this', 'inp')); } catch(e) {}
+        }
+      });
+    }
   }
 
   else if (section === 'mor-wcd') {
