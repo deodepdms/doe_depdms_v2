@@ -640,7 +640,7 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
       </div>
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="goTab('profile')">← DU Profile</button>
-        <button class="btn btn-secondary" onclick="pasteFromClipboard('mor-ur')" title="Paste copied Excel/CSV data into MOR-UR table">📋 Paste Data</button>
+        <button class="btn btn-secondary" onclick="pasteSection('mor-ur')" title="Paste data from Excel/Sheets">📋 Paste Data</button>
         <button class="btn btn-primary" onclick="saveSection('mor-ur')">✓ Save MOR-UR</button>
       </div>
     </div>
@@ -678,7 +678,7 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
       </div>
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="goTab('profile')">← DU Profile</button>
-        <button class="btn btn-secondary" onclick="pasteFromClipboard('mor-wcd')" title="Paste copied Excel/CSV data into MOR-WCD table">📋 Paste Data</button>
+        <button class="btn btn-secondary" onclick="pasteSection('mor-wcd')" title="Paste data from Excel/Sheets">📋 Paste Data</button>
         <button class="btn btn-primary" onclick="saveSection('mor-wcd')">✓ Save MOR-WCD</button>
       </div>
     </div>
@@ -719,7 +719,7 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
       </div>
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="goTab('profile')">← DU Profile</button>
-        <button class="btn btn-secondary" onclick="pasteFromClipboard('mor-dtd')" title="Paste copied Excel/CSV data into MOR-DTD table">📋 Paste Data</button>
+        <button class="btn btn-secondary" onclick="pasteSection('mor-dtd')" title="Paste data from Excel/Sheets">📋 Paste Data</button>
         <button class="btn btn-primary" onclick="saveSection('mor-dtd')">✓ Save MOR-DTD</button>
       </div>
     </div>
@@ -756,7 +756,7 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
       </div>
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="goTab('profile')">← DU Profile</button>
-        <button class="btn btn-secondary" onclick="pasteFromClipboard('mor-csd')" title="Paste copied Excel/CSV data into MOR-CSD table">📋 Paste Data</button>
+        <button class="btn btn-secondary" onclick="pasteSection('mor-csd')" title="Paste data from Excel/Sheets">📋 Paste Data</button>
         <button class="btn btn-primary" onclick="saveSection('mor-csd')">✓ Save MOR-CSD</button>
       </div>
     </div>
@@ -798,7 +798,7 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
       </div>
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="goTab('profile')">← DU Profile</button>
-        <button class="btn btn-secondary" onclick="pasteFromClipboard('mor-dsd')" title="Paste copied Excel/CSV data into MOR-DSD table">📋 Paste Data</button>
+        <button class="btn btn-secondary" onclick="pasteSection('mor-dsd')" title="Paste data from Excel/Sheets">📋 Paste Data</button>
         <button class="btn btn-primary" onclick="saveSection('mor-dsd')">✓ Save MOR-DSD</button>
       </div>
     </div>
@@ -1888,166 +1888,134 @@ function renderCsvTable(rows){if(!rows||rows.length===0)return'<div style="paddi
 function renderCsvPreview(sectionId){const builder=CSV_BUILDERS[sectionId];if(!builder)return;const tableDiv=document.getElementById('csvtable-'+sectionId),infoEl=document.getElementById('csvinfo-'+sectionId);if(!tableDiv)return;tableDiv.innerHTML='<div style="padding:12px 14px;color:var(--accent4);font-size:11px;">⟳ Generating preview…</div>';setTimeout(()=>{try{const csvStr=builder(),rows=parseCsvToRows(csvStr),dataRows=Math.max(0,rows.length-4);tableDiv.innerHTML=renderCsvTable(rows);if(infoEl){const cols=rows[1]?rows[1].length:0;infoEl.textContent='📊 '+dataRows+' data row(s) · '+cols+' column(s) · '+getFilename(sectionId);}}catch(e){tableDiv.innerHTML='<div style="padding:12px 14px;color:var(--danger);font-size:11px;">⚠ Preview error: '+escH(String(e))+'</div>';}},30);}
 function toggleCsvPreview(sectionId){const body=document.getElementById('csvbody-'+sectionId),chevron=document.getElementById('csvtoggle-'+sectionId);if(!body)return;const isOpen=body.classList.toggle('open');if(chevron)chevron.classList.toggle('open',isOpen);if(isOpen)renderCsvPreview(sectionId);}
 
-// ══════════════════════════════════════════════════════
-// 📋 PASTE FROM CLIPBOARD
-// Supports data copied from Excel, Google Sheets, or CSV.
-// Tab-separated (Excel/Sheets) or comma-separated (CSV).
-// For UR/CSD: each row of clipboard = one customer type row.
-// For WCD/DSD: each row = one table row.
-// For DTD: single row of 5 values fills the 5 fields.
-// Skips header rows automatically (non-numeric first cell).
-// ══════════════════════════════════════════════════════
-async function pasteFromClipboard(section) {
+// ══════════════════════════════════════════════
+// 📋 PASTE FROM CLIPBOARD — pasteSection(section)
+// Copy data from Excel/Google Sheets then click
+// "Paste Data". Supports tab-separated or CSV.
+// ══════════════════════════════════════════════
+async function pasteSection(section) {
   let text = '';
   try {
     text = await navigator.clipboard.readText();
   } catch(e) {
-    // Fallback: prompt user to paste manually
-    text = prompt('📋 Paste your copied data here (from Excel or CSV):', '');
-    if (!text) return;
+    text = prompt('📋 Paste your copied data here (Ctrl+V):', '');
+    if (text === null) return;
   }
-  if (!text || !text.trim()) { showErr('Clipboard is empty. Copy your data first.'); return; }
+  if (!text || !text.trim()) { showErr('Clipboard is empty. Please copy your data first.'); return; }
 
-  // Parse: split into rows, then cells (tab or comma)
-  const rawRows = text.trim().split(/\r?\n/).map(row => {
-    // Try tab first (Excel/Sheets), fallback to comma
-    return row.includes('\t') ? row.split('\t') : row.split(',').map(c => c.replace(/^"|"$/g,'').trim());
-  });
+  // Split into rows then cells — prefer tab (Excel/Sheets), fallback comma
+  const rows = text.trim().split(/\r?\n/).map(line =>
+    line.includes('\t') ? line.split('\t') : line.split(',').map(c => c.replace(/^"|"$/g,'').trim())
+  );
 
-  // Filter out header rows: skip rows where first cell is non-numeric text
-  // (e.g. "Participant ID", "Customer Type", column headers)
-  const dataRows = rawRows.filter(row => {
-    const first = (row[0]||'').trim();
-    // Keep if any cell in row looks like a number or is empty
-    return row.some(c => c.trim() !== '' && !isNaN(parseFloat(c.replace(/,/g,''))));
-  });
+  // Keep only rows that have at least one numeric value
+  const dataRows = rows.filter(row =>
+    row.some(c => c.trim() !== '' && !isNaN(parseFloat(c.replace(/,/g,''))))
+  );
 
-  if (dataRows.length === 0) { showErr('No numeric data found in clipboard. Make sure you copied the data rows.'); return; }
+  if (!dataRows.length) { showErr('No numeric data found. Copy the data rows from Excel first.'); return; }
 
   let filled = 0;
 
+  // ── MOR-UR ──
   if (section === 'mor-ur') {
-    // UR paste strategy:
-    // - Row 0 (ri=0) has TRIGGER inputs — fill them and call urAutoFill manually
-    //   so rows 1-6 auto-fill correctly
-    // - Rows 1-6 that have their own editable inputs get filled too
-    // - Readonly (auto) inputs are skipped
-    const inputRows = document.querySelectorAll('#ur-body tr:not(.eof)');
+    const tbody = document.getElementById('ur-body');
+    const trs = tbody.querySelectorAll('tr:not(.eof)');
 
     dataRows.forEach((cells, ri) => {
-      if (ri >= inputRows.length) return;
-      const tr = inputRows[ri];
-      // Get ALL inputs in this row (including triggers)
-      const allInputs = tr.querySelectorAll('input');
-      // Only editable ones (not readonly)
-      const editableInputs = tr.querySelectorAll('input:not([readonly])');
+      if (ri >= trs.length) return;
+      const tr = trs[ri];
 
-      let ei = 0; // index into editableInputs
-      cells.forEach(cell => {
-        const val = cell.trim().replace(/,/g,'');
-        if (val === '' || isNaN(parseFloat(val))) return;
-        if (ei < editableInputs.length) {
-          const inp = editableInputs[ei];
-          inp.value = val;
-          // Fire oninput attribute handler (urAutoFill) if it exists
-          const onInputAttr = inp.getAttribute('oninput');
-          if (onInputAttr) {
-            try { eval(onInputAttr.replace('this', 'inp')); } catch(e) {}
-            // Also dispatch so clearErr runs
-            inp.dispatchEvent(new InputEvent('input', {bubbles:true}));
-          } else {
-            inp.dispatchEvent(new InputEvent('input', {bubbles:true}));
-          }
-          ei++; filled++;
+      // Collect only numeric values from this pasted row
+      const nums = cells.map(c => c.trim().replace(/,/g,'')).filter(c => c !== '' && !isNaN(parseFloat(c)));
+      if (!nums.length) return;
+
+      // Get all editable inputs in this table row (not readonly)
+      const inputs = Array.from(tr.querySelectorAll('input:not([readonly])'));
+      if (!inputs.length) return;
+
+      inputs.forEach((inp, idx) => {
+        if (idx >= nums.length) return;
+        inp.value = nums[idx];
+        // Directly call urAutoFill if this input has an oninput with urAutoFill
+        const oi = inp.getAttribute('oninput') || '';
+        if (oi.includes('urAutoFill')) {
+          const m = oi.match(/urAutoFill\(this,(\d+)(?:,(\d+))?\)/);
+          if (m) urAutoFill(inp, parseInt(m[1]), m[2] !== undefined ? parseInt(m[2]) : undefined);
         }
-      });
-    });
-
-    // After filling row 0 triggers, re-fire urAutoFill for each trigger col
-    // to make sure rows 1-6 are all updated
-    const row0 = inputRows[0];
-    if (row0) {
-      row0.querySelectorAll('input[oninput]').forEach(inp => {
-        const attr = inp.getAttribute('oninput');
-        if (attr && attr.includes('urAutoFill')) {
-          try { eval(attr.replace('this', 'inp')); } catch(e) {}
-        }
-      });
-    }
-  }
-
-  else if (section === 'mor-wcd') {
-    // WCD: rows × [category, no.customers, elec.wheeled, wheeling rate]
-    const tbody = document.getElementById('wcd-body');
-    tbody.innerHTML = ''; wcdCount = 0;
-    dataRows.forEach(cells => {
-      const nums = cells.map(c => c.trim().replace(/,/g,'')).filter(c => c !== '');
-      if (nums.length >= 3) {
-        // Try to detect if first cell is a category name
-        const firstIsNum = !isNaN(parseFloat(nums[0]));
-        const cat = firstIsNum ? '' : cells[0].trim();
-        const numCells = firstIsNum ? nums : nums.slice(0);
-        addWCDRowData([cat, numCells[0]||'', numCells[1]||'', numCells[2]||'']);
+        inp.dispatchEvent(new Event('input', {bubbles:true}));
         filled++;
-      }
-    });
-  }
-
-  else if (section === 'mor-dtd') {
-    // DTD: single row of 5 values → fields dtd_ml, dtd_cu, dtd_sl, dtd_tb, dtd_eb
-    const ids = ['dtd_ml','dtd_cu','dtd_sl','dtd_tb','dtd_eb'];
-    // Flatten all data rows into one array of numeric values
-    const allVals = dataRows.flat().map(c=>c.trim().replace(/,/g,'')).filter(c=>c!==''&&!isNaN(parseFloat(c)));
-    ids.forEach((id, i) => {
-      if (allVals[i] === undefined) return;
-      const el = document.getElementById(id);
-      if (el) { el.value = allVals[i]; el.dispatchEvent(new Event('input')); filled++; }
-    });
-  }
-
-  else if (section === 'mor-csd') {
-    // CSD: up to 7 rows × [no.customers, elec.sales, eff.rate, cap.alloc]
-    const inputRows = document.querySelectorAll('#csd-body tr:not(.eof)');
-    dataRows.forEach((cells, ri) => {
-      if (ri >= inputRows.length) return;
-      const inputs = inputRows[ri].querySelectorAll('input:not([readonly])');
-      let ci = 0;
-      cells.forEach(cell => {
-        const val = cell.trim().replace(/,/g,'');
-        if (val === '' || isNaN(parseFloat(val))) return;
-        if (ci < inputs.length) {
-          inputs[ci].value = val;
-          inputs[ci].dispatchEvent(new Event('input'));
-          ci++; filled++;
-        }
       });
     });
   }
 
-  else if (section === 'mor-dsd') {
-    // DSD: rows × [supplier, gen affiliated, start, end, cap, energy, purchased, cost]
-    const tbody = document.getElementById('dsd-body');
-    tbody.innerHTML = ''; dsdCount = 0;
-    dataRows.forEach(cells => {
-      if (cells.length < 2) return;
-      const supplier = cells[0]||'';
-      const gen      = (cells[1]||'N').trim().toUpperCase() === 'Y' ? 'Y' : 'N';
-      const cstart   = (cells[2]||'').trim();
-      const cend     = (cells[3]||'').trim();
-      const ccap     = (cells[4]||'').trim();
-      const cenergy  = (cells[5]||'').trim();
-      const purch    = (cells[6]||'').trim();
-      const cost     = (cells[7]||'').trim();
-      addDSDRowData([supplier,gen,cstart,cend,ccap,cenergy,'',purch,cost]);
+  // ── MOR-CSD ──
+  else if (section === 'mor-csd') {
+    const tbody = document.getElementById('csd-body');
+    const trs = tbody.querySelectorAll('tr:not(.eof)');
+    dataRows.forEach((cells, ri) => {
+      if (ri >= trs.length) return;
+      const nums = cells.map(c => c.trim().replace(/,/g,'')).filter(c => c !== '' && !isNaN(parseFloat(c)));
+      if (!nums.length) return;
+      const inputs = Array.from(trs[ri].querySelectorAll('input:not([readonly])'));
+      inputs.forEach((inp, idx) => {
+        if (idx >= nums.length) return;
+        inp.value = nums[idx];
+        inp.dispatchEvent(new Event('input', {bubbles:true}));
+        filled++;
+      });
+    });
+  }
+
+  // ── MOR-DTD ──
+  else if (section === 'mor-dtd') {
+    const ids = ['dtd_ml','dtd_cu','dtd_sl','dtd_tb','dtd_eb'];
+    const nums = dataRows.flat().map(c => c.trim().replace(/,/g,'')).filter(c => c !== '' && !isNaN(parseFloat(c)));
+    ids.forEach((id, i) => {
+      if (i >= nums.length) return;
+      const el = document.getElementById(id);
+      if (!el || el.readOnly) return;
+      el.value = nums[i];
+      el.dispatchEvent(new Event('input', {bubbles:true}));
       filled++;
     });
   }
 
-  if (filled > 0) {
-    showOk(`✓ Pasted ${filled} value${filled===1?'':'s'} into ${section.toUpperCase().replace('MOR-','MOR-')} successfully!`);
-  } else {
-    showErr('Could not fill any fields. Make sure the copied data matches the table format.');
+  // ── MOR-WCD ──
+  else if (section === 'mor-wcd') {
+    document.getElementById('wcd-body').innerHTML = '';
+    wcdCount = 0;
+    dataRows.forEach(cells => {
+      const first = (cells[0]||'').trim();
+      const firstIsNum = !isNaN(parseFloat(first.replace(/,/g,'')));
+      const cat = firstIsNum ? '' : first;
+      const nums = (firstIsNum ? cells : cells.slice(1)).map(c => c.trim().replace(/,/g,'')).filter(c => !isNaN(parseFloat(c)));
+      if (nums.length >= 1) { addWCDRowData([cat, nums[0]||'', nums[1]||'', nums[2]||'']); filled++; }
+    });
   }
+
+  // ── MOR-DSD ──
+  else if (section === 'mor-dsd') {
+    document.getElementById('dsd-body').innerHTML = '';
+    dsdCount = 0;
+    dataRows.forEach(cells => {
+      // cells: supplier, Y/N, startDate, endDate, cap, energy, purchased, cost
+      const clean = cells.map(c => c.trim());
+      const supplier = clean[0] || '';
+      const gen      = (clean[1]||'N').toUpperCase() === 'Y' ? 'Y' : 'N';
+      const cstart   = clean[2] || '';
+      const cend     = clean[3] || '';
+      const ccap     = clean[4] || '';
+      const cenergy  = clean[5] || '';
+      const purch    = clean[6] || '';
+      const cost     = clean[7] || '';
+      if (supplier) { addDSDRowData([supplier,gen,cstart,cend,ccap,cenergy,'',purch,cost]); filled++; }
+    });
+  }
+
+  filled > 0
+    ? showOk('✓ Pasted successfully — ' + filled + ' value(s) filled!')
+    : showErr('Could not fill any fields. Make sure data matches the table format.');
 }
 </script>
 </body>
