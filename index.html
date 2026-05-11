@@ -535,9 +535,7 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
           <option>May</option><option>June</option><option>July</option><option>August</option>
           <option>September</option><option>October</option><option>November</option><option>December</option>
         </select>
-        <select class="small" id="year-select" onchange="updatePeriod()">
-          <option>2025</option><option>2026</option><option>2027</option><option>2028</option><option>2029</option><option>2030</option><option>2031</option><option>2032</option><option>2033</option><option>2034</option><option>2035</option><option>2036</option><option>2037</option>
-        </select>
+        <select class="small" id="year-select" onchange="onYearSelectChange()"></select>
         <span class="badge" id="period-badge">JAN 2025</span>
       </div>
     </div>
@@ -881,7 +879,11 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
       <div class="csv-preview-wrap" id="csvprev-dor-off-dd">
         <div class="csv-preview-header" onclick="toggleCsvPreview('dor-off-dd')">
           <div class="csv-ph-left"><span class="csv-ph-toggle" id="csvtoggle-dor-off-dd">▾</span><span>📄 CSV Preview – DOR_OFF_DD</span><span style="font-size:10px;color:var(--accent4);font-weight:400;text-transform:none;letter-spacing:0;">Live preview of the export file</span></div>
-          <button class="csv-refresh-btn" onclick="event.stopPropagation();renderCsvPreview('dor-off-dd')" title="Refresh preview">↻ Refresh</button>
+          <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
+            <span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;">AM/PM</span>
+            <button id="ampm-toggle-btn" onclick="toggleAmPmFormat()" title="Toggle AM/PM format" style="display:flex;align-items:center;gap:6px;background:rgba(31,111,235,.15);border:1px solid rgba(31,111,235,.35);color:#58a6ff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:6px;cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:.04em;transition:background .15s;">✓ With AM/PM</button>
+            <button class="csv-refresh-btn" onclick="renderCsvPreview('dor-off-dd')" title="Refresh preview">↻ Refresh</button>
+          </div>
         </div>
         <div class="csv-preview-body" id="csvbody-dor-off-dd">
           <div class="csv-preview-scroll"><div id="csvtable-dor-off-dd" style="padding:12px 14px;color:var(--muted);font-size:11px;">Click ▾ to expand preview.</div></div>
@@ -910,7 +912,13 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
         <div class="export-card" id="ec-dtd" onclick="exportCSV('mor-dtd')"><div class="export-icon">📡</div><div class="export-name">MOR_DTD</div><div class="export-desc">DU Technical Data</div><div class="export-status" id="es-dtd"></div></div>
         <div class="export-card" id="ec-csd" onclick="exportCSV('mor-csd')"><div class="export-icon">👥</div><div class="export-name">MOR_CSD</div><div class="export-desc">Customer Sales Data</div><div class="export-status" id="es-csd"></div></div>
         <div class="export-card" id="ec-dsd" onclick="exportCSV('mor-dsd')"><div class="export-icon">🏭</div><div class="export-name">MOR_DSD</div><div class="export-desc">DU Supply Data</div><div class="export-status" id="es-dsd"></div></div>
-        <div class="export-card" id="ec-dor-off-dd" onclick="exportCSV('dor-off-dd')"><div class="export-icon">🌐</div><div class="export-name">DOR_OFF_DD</div><div class="export-desc">Off-Grid Daily Demand</div><div class="export-status" id="es-dor-off-dd"></div></div>
+        <div class="export-card" id="ec-dor-off-dd" onclick="exportCSV('dor-off-dd')">
+          <div class="export-icon">🌐</div>
+          <div class="export-name">DOR_OFF_DD</div>
+          <div class="export-desc">Off-Grid Daily Demand</div>
+          <div id="dor-ampm-export-badge" style="display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;background:rgba(31,111,235,.12);color:#58a6ff;border:1px solid rgba(31,111,235,.3);">🕐 With AM/PM</div>
+          <div class="export-status" id="es-dor-off-dd"></div>
+        </div>
       </div>
       <div class="btn-row" style="margin-top:24px">
         <button class="btn btn-success" onclick="exportAll()">⬇ Download All 6 CSV Files</button>
@@ -1121,6 +1129,7 @@ function enterSession(username, user) {
   pill.style.setProperty('--pill-border',cfg.border);
   applyPermissions(cfg.allow);
   applyProfilePermissions();
+  populateYearSelect();
   document.getElementById('profile-role-badge').textContent=cfg.label+' · '+user.name;
 
   addLog('LOGIN',`Signed in as "${user.name}" · Role: ${cfg.label} · Dept: ${user.dept}`);
@@ -1341,6 +1350,25 @@ function goToMySection() { const cfg=ROLE_CONFIG[currentRole]; const sec=cfg.all
 // ── HELPERS ──
 function getMonth(){return document.getElementById('month-select').value;}
 function getYear() {return document.getElementById('year-select').value;}
+
+function populateYearSelect() {
+  const sel = document.getElementById('year-select');
+  const currentYear = new Date().getFullYear();
+  const selected = sel.value || String(currentYear);
+  sel.innerHTML = '';
+  for (let y = currentYear; y <= currentYear + 29; y++) {
+    const opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    if (String(y) === selected) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  if (!sel.value) sel.value = String(currentYear);
+}
+
+function onYearSelectChange() {
+  updatePeriod();
+}
 function getMonthIdx(){return MONTHS.indexOf(getMonth());}
 function getDay()  {return MONTH_DAYS[getMonthIdx()];}
 function v(id)     {return document.getElementById(id)?.value||'';}
@@ -1899,6 +1927,7 @@ function addDSDRowData([supplier,gen,cstart,cend,ccap,cenergy,_,purch,cost]){
 // ── EXPORT VALIDATION ──
 function paneHasEmpty(paneId){ const pane=document.getElementById('pane-'+paneId); if(!pane) return false; let empty=false; pane.querySelectorAll('input[type=text],input[type=number],input[type=email]').forEach(inp=>{if(inp.value.trim()==='') empty=true;}); return empty; }
 function refreshExportStatus(){
+  updateDorExportBadge();
   const map={'profile':'profile','mor-ur':'ur','mor-wcd':'wcd','mor-dtd':'dtd','mor-csd':'csd','mor-dsd':'dsd','dor-off-dd':'dor-off-dd'};
   Object.entries(map).forEach(([paneId,key])=>{ const card=document.getElementById('ec-'+key),stat=document.getElementById('es-'+key); if(!card||!stat) return; const hasEmpty=paneHasEmpty(paneId); card.classList.toggle('blocked',hasEmpty); if(hasEmpty){stat.className='export-status err';stat.textContent='⚠ Has empty fields';}else{stat.className='export-status ok';stat.textContent='✓ Ready to export';} });
 }
@@ -2003,6 +2032,44 @@ function buildDorOffDdTable() {
   populateDorDaySelect();
 }
 
+let _dorAmPm = true; // true = with AM/PM, false = without
+
+function toggleAmPmFormat() {
+  _dorAmPm = !_dorAmPm;
+  const btn = document.getElementById('ampm-toggle-btn');
+  if (btn) {
+    if (_dorAmPm) {
+      btn.textContent = '✓ With AM/PM';
+      btn.style.background = 'rgba(31,111,235,.15)';
+      btn.style.borderColor = 'rgba(31,111,235,.35)';
+      btn.style.color = '#58a6ff';
+    } else {
+      btn.textContent = '✕ Without AM/PM';
+      btn.style.background = 'rgba(139,148,158,.12)';
+      btn.style.borderColor = 'rgba(139,148,158,.3)';
+      btn.style.color = 'var(--muted)';
+    }
+  }
+  updateDorExportBadge();
+  renderCsvPreview('dor-off-dd');
+}
+
+function updateDorExportBadge() {
+  const badge = document.getElementById('dor-ampm-export-badge');
+  if (!badge) return;
+  if (_dorAmPm) {
+    badge.textContent = '🕐 With AM/PM';
+    badge.style.background = 'rgba(31,111,235,.12)';
+    badge.style.color = '#58a6ff';
+    badge.style.borderColor = 'rgba(31,111,235,.3)';
+  } else {
+    badge.textContent = '🕐 Without AM/PM';
+    badge.style.background = 'rgba(139,148,158,.1)';
+    badge.style.color = 'var(--muted)';
+    badge.style.borderColor = 'rgba(139,148,158,.25)';
+  }
+}
+
 function buildDorOffDdCSV() {
   const m = getMonth(), y = getYear();
   const day = getDorDay();
@@ -2010,11 +2077,22 @@ function buildDorOffDdCSV() {
   const datePrefix = `${mi}/${day}/${y}`;
   const hdr = `Daily Operations Report – Off-Grid – Daily Demand (DOR-OFF-DD) for <${day}> <${m}> <${y}>`;
   const cols = ['1 - Time Interval','2 - Region','3 - Province','4 - SIIG','5 - Scenario','6 - Demand'];
-  const types = ['Date (mm/dd/yyyy hh:mm AM/PM)','Alphanumeric','Alphanumeric','Alphanumeric','Alphanumeric','Numeric, 4 decimal places'];
+  const types = [_dorAmPm ? 'Date (mm/dd/yyyy hh:mm AM/PM)' : 'Date (mm/dd/yyyy HH:mm)','Alphanumeric','Alphanumeric','Alphanumeric','Alphanumeric','Numeric, 4 decimal places'];
   const blank = Array(6).fill(''); blank[0] = hdr;
   const rows = [blank, cols, types];
+  // Format time based on AM/PM toggle
+  const formatTime = (hour24str) => {
+    if (_dorAmPm) return hour24str; // e.g. "12:00 AM"
+    // Convert to 24-hour format: "12:00 AM" -> "00:00", "01:00 PM" -> "13:00"
+    const [time, period] = hour24str.split(' ');
+    let [h, m] = time.split(':').map(Number);
+    if (period === 'AM' && h === 12) h = 0;
+    else if (period === 'PM' && h !== 12) h += 12;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  };
+
   document.getElementById('dor-off-dd-body').querySelectorAll('tr:not(.eof)').forEach((tr, idx) => {
-    const timeStr = `${datePrefix} ${DOR_HOURS[idx]}`;
+    const timeStr = `${datePrefix} ${formatTime(DOR_HOURS[idx])}`;
     const inps = tr.querySelectorAll('td.has-val input');
     rows.push([timeStr, inps[0]?.value||'', inps[1]?.value||'', inps[2]?.value||'', inps[3]?.value||'', inps[4]?.value||'']);
   });
@@ -2095,6 +2173,7 @@ function applyDorOffDdPaste() {
 }
 
 buildURTable(); buildCSDTable(); buildWCDTable(); buildDSDTable(); buildDorOffDdTable();
+populateYearSelect();
 
 
 const GS_URL = 'https://script.google.com/macros/s/AKfycbzqmkBsSgMAnrHqDTK1lW4pmcve1g8brktGXIX8SCa25uMQMAtRI8Yo18cdYe98P4mo4A/exec';
