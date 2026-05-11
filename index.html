@@ -624,7 +624,7 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
         <div class="grid-header-bar">
           <span>Unbundled Rate Data · 7 Customer Types × 32 Rate Columns</span>
           <div style="display:flex;align-items:center;gap:8px;">
-            <button class="btn-paste-ur" onclick="pasteURFromClipboard()" title="Copy rows from Excel/Sheets then click this">📋 Paste from Clipboard</button>
+            <button class="btn-paste-ur" id="btn-paste-ur" onclick="pasteURFromClipboard()" title="Copy rows from Excel/Sheets then click this" style="display:none">📋 Paste from Clipboard</button>
             <span style="color:var(--accent)">35 Columns</span>
           </div>
         </div>
@@ -670,7 +670,13 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
         <div class="section-desc">Number of wheeling customers, total electricity wheeled, and wheeling rate.</div>
       </div>
       <div class="grid-wrap">
-        <div class="grid-header-bar"><span>Wheeling Customer Data · 6 Columns</span><span style="color:var(--accent)">Per Row = 1 Category</span></div>
+        <div class="grid-header-bar">
+          <span>Wheeling Customer Data · 6 Columns</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn-paste-ur" id="btn-paste-wcd" onclick="pasteTableFromClipboard('wcd')" style="display:none">📋 Paste from Clipboard</button>
+            <span style="color:var(--accent)">Per Row = 1 Category</span>
+          </div>
+        </div>
         <div class="grid-scroll">
           <table class="xls" id="wcd-table">
             <thead>
@@ -747,7 +753,13 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
         <div class="section-desc">Number of customers, electricity sales, effective rate, and capacity allocation per type.</div>
       </div>
       <div class="grid-wrap">
-        <div class="grid-header-bar"><span>Customer Sales Data · 7 Columns</span><span style="color:var(--accent)">7 Customer Types</span></div>
+        <div class="grid-header-bar">
+          <span>Customer Sales Data · 7 Columns</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn-paste-ur" id="btn-paste-csd" onclick="pasteTableFromClipboard('csd')" style="display:none">📋 Paste from Clipboard</button>
+            <span style="color:var(--accent)">7 Customer Types</span>
+          </div>
+        </div>
         <div class="grid-scroll">
           <table class="xls" id="csd-table">
             <thead>
@@ -783,7 +795,13 @@ input[type=text].small:focus,select.small:focus{border-color:var(--accent);}
         <div class="section-desc">Power supplier contracts and purchased electricity per source.</div>
       </div>
       <div class="grid-wrap">
-        <div class="grid-header-bar"><span>Supply Data · 10 Columns</span><span style="color:var(--accent)">1 Row per Supplier</span></div>
+        <div class="grid-header-bar">
+          <span>Supply Data · 10 Columns</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn-paste-ur" id="btn-paste-dsd" onclick="pasteTableFromClipboard('dsd')" style="display:none">📋 Paste from Clipboard</button>
+            <span style="color:var(--accent)">1 Row per Supplier</span>
+          </div>
+        </div>
         <div class="grid-scroll">
           <table class="xls" id="dsd-table">
             <thead>
@@ -1250,6 +1268,12 @@ function applyPermissions(allow) {
     const el = document.getElementById('lock-' + key);
     if (el) el.textContent = allow.includes(pane) ? '' : '🔒';
   });
+  // Show paste buttons only for Power Trading
+  const canPaste = currentRole === 'pt';
+  ['ur','wcd','csd','dsd'].forEach(s => {
+    const btn = document.getElementById('btn-paste-' + s);
+    if (btn) btn.style.display = canPaste ? '' : 'none';
+  });
 }
 function tryGoTab(id) { if(id==='changepw'){goTab('changepw');return;} const cfg=ROLE_CONFIG[currentRole]; if(!cfg||!cfg.allow.includes(id)){showErr('🔒 Access restricted. Your role: '+cfg.allow.filter(x=>x!=='profile').join(', '));return;} goTab(id); }
 function goToMySection() { const cfg=ROLE_CONFIG[currentRole]; const sec=cfg.allow.find(a=>a!=='profile'); if(sec) goTab(sec); else goTab('export'); }
@@ -1487,18 +1511,16 @@ function urInitAutoFill() {
 }
 
 function pasteURFromClipboard() {
-  // Show paste modal
   const overlay = document.createElement('div');
   overlay.className = 'paste-modal-overlay';
   overlay.innerHTML = `
     <div class="paste-modal">
       <h3>📋 Paste UR Data from Excel / Spreadsheet</h3>
       <p>
-        1. In Excel/Sheets, select your data rows (7 rows × columns 4–35, no headers).<br>
-        2. Copy (<strong>Ctrl+C</strong>).<br>
-        3. Paste below (<strong>Ctrl+V</strong>) then click <strong>Apply</strong>.
+        Copy any range from Excel/Sheets — headers, row numbers, and customer type labels are
+        <strong>automatically ignored</strong>. Just copy your data and paste below.
       </p>
-      <textarea id="paste-ur-input" placeholder="Paste your copied cells here..."></textarea>
+      <textarea id="paste-ur-input" placeholder="Ctrl+V to paste here..."></textarea>
       <div class="paste-result" id="paste-ur-result"></div>
       <div class="paste-modal-btns">
         <button class="paste-cancel-btn" onclick="this.closest('.paste-modal-overlay').remove()">Cancel</button>
@@ -1506,86 +1528,206 @@ function pasteURFromClipboard() {
       </div>
     </div>`;
   document.body.appendChild(overlay);
-  // Auto-focus textarea and try reading clipboard directly
   const ta = overlay.querySelector('#paste-ur-input');
   ta.focus();
+  // Try to auto-read clipboard immediately
   if (navigator.clipboard?.readText) {
-    navigator.clipboard.readText().then(txt => { if(txt) ta.value = txt; }).catch(()=>{});
+    navigator.clipboard.readText().then(txt => {
+      if (txt) {
+        ta.value = txt;
+        showPasteResult('Clipboard loaded — click Apply to fill the table.', true);
+      }
+    }).catch(() => {});
   }
 }
 
 function applyURPaste() {
   const ta = document.getElementById('paste-ur-input');
-  const result = document.getElementById('paste-ur-result');
   const raw = ta.value.trim();
   if (!raw) { showPasteResult('No data pasted.', false); return; }
 
-  // Parse tab-separated rows
-  const rows = raw.split(/\r?\n/).filter(r => r.trim() !== '');
+  const CT_NAMES = ['Residential-Lifeline-Grid','Residential-Non-Lifeline','Commercial-LV',
+    'Industrial-HV','Public-Building-LV','Streetlights-LV','Special-Lighting'];
+
+  // Split into rows, remove truly empty lines
+  let rows = raw.split(/\r?\n/).map(r => r.split('\t'));
+
+  // Auto-detect and skip header rows:
+  // A row is a header if it has NO numeric values at all
+  rows = rows.filter(cols => {
+    const vals = cols.map(c => c.trim());
+    // Keep row if at least one cell is numeric (or 0)
+    return vals.some(v => v !== '' && !isNaN(parseFloat(v.replace(',','.'))));
+  });
+
+  // For each row, auto-strip leading non-numeric columns
+  // (customer type labels, row numbers, etc.)
+  rows = rows.map(cols => {
+    let start = 0;
+    for (let i = 0; i < cols.length; i++) {
+      const v = cols[i].trim().replace(',','.');
+      // Skip if it's a label (non-numeric and not '0')
+      if (v === '' || (!isNaN(parseFloat(v)))) { start = i; break; }
+    }
+    return cols.slice(start);
+  });
+
+  // Only take up to 7 data rows
+  rows = rows.slice(0, 7);
+
   const tbody = document.getElementById('ur-body');
   const trEls = Array.from(tbody.querySelectorAll('tr:not(.eof)'));
+  let filled = 0;
 
-  // Detect if pasted rows include customer type label as first col — skip it
-  // Also detect if there's a header row — skip it
-  let dataRows = rows;
-  const CT_NAMES = ['Residential-Lifeline-Grid','Residential-Non-Lifeline','Commercial-LV','Industrial-HV','Public-Building-LV','Streetlights-LV','Special-Lighting'];
-
-  let filled = 0, skipped = 0;
-
-  dataRows.forEach((row, pasteRi) => {
-    let cols = row.split('\t');
-
-    // Strip leading customer-type label column if present
-    if (isNaN(parseFloat(cols[0])) && cols[0].trim() !== '0') {
-      cols = cols.slice(1);
-    }
-
-    // Find which table row this matches (by paste row index, 0-based)
-    // Support pasting all 7 rows or just some — match by position
+  rows.forEach((cols, pasteRi) => {
     const trEl = trEls[pasteRi];
     if (!trEl) return;
 
-    // Fill each column value into the correct editable cell
     cols.forEach((val, ci) => {
       const parsed = val.trim().replace(',', '.');
-      // ci here = index into pasted cols = col index in UR table (0-based = col4)
+      if (parsed === '') return;
+      const num = parseFloat(parsed);
+      if (isNaN(num)) return;
+
       const td = trEl.querySelector(`td[data-col="${ci}"]`);
       if (!td) return;
       const inp = td.querySelector('input');
       if (!inp) return;
 
-      // Always fill — even auto cells — when pasting (admin override behavior)
-      // But only fill the trigger cell; auto-fill will propagate
-      if (!inp.readOnly || currentRole === 'admin') {
-        if (inp.readOnly) inp.removeAttribute('readonly'); // temp allow for paste
-        inp.value = parsed !== '' && !isNaN(parseFloat(parsed)) ? parseFloat(parsed) : '';
-        filled++;
-      }
+      // Temporarily unlock readonly for paste, then re-lock after
+      const wasReadonly = inp.readOnly;
+      if (wasReadonly) inp.removeAttribute('readonly');
+      inp.value = num;
+      if (wasReadonly && currentRole !== 'admin') inp.setAttribute('readonly', true);
+      filled++;
     });
   });
 
-  // Re-run auto-fill so all dependent cells update from pasted trigger values
+  // Re-run auto-fill from pasted trigger values
   urInitAutoFill();
 
-  // Re-lock readonly cells for non-admin
-  if (currentRole !== 'admin') {
-    tbody.querySelectorAll('td.ur-auto input').forEach(inp => inp.setAttribute('readonly', true));
-  }
-
   if (filled > 0) {
-    showPasteResult(`✓ Applied ${filled} value(s) across ${Math.min(dataRows.length, 7)} row(s). Auto-fill updated.`, true);
+    showPasteResult(`✓ Applied ${filled} value(s) across ${rows.length} row(s).`, true);
     setTimeout(() => document.querySelector('.paste-modal-overlay')?.remove(), 1800);
   } else {
-    showPasteResult('No valid numeric values found. Check your data format.', false);
+    showPasteResult('No valid numeric values found. Check your data.', false);
   }
 }
 
 function showPasteResult(msg, ok) {
-  const el = document.getElementById('paste-ur-result');
+  const el = document.getElementById('paste-ur-result') || document.getElementById('paste-table-result');
   if (!el) return;
   el.textContent = msg;
   el.className = 'paste-result ' + (ok ? 'ok' : 'err');
   el.style.display = 'block';
+}
+
+function pasteTableFromClipboard(section) {
+  const titles = { wcd:'WCD – Wheeling Customer Data', csd:'CSD – Customer Sales Data', dsd:'DSD – Supply Data' };
+  const overlay = document.createElement('div');
+  overlay.className = 'paste-modal-overlay';
+  overlay.id = 'paste-overlay-' + section;
+  overlay.innerHTML = `
+    <div class="paste-modal">
+      <h3>📋 Paste ${titles[section]} from Excel / Spreadsheet</h3>
+      <p>Copy any range from Excel/Sheets — headers, row numbers, and labels are <strong>automatically ignored</strong>. Just copy your data and paste below.</p>
+      <textarea id="paste-table-input" placeholder="Ctrl+V to paste here..."></textarea>
+      <div class="paste-result" id="paste-table-result"></div>
+      <div class="paste-modal-btns">
+        <button class="paste-cancel-btn" onclick="this.closest('.paste-modal-overlay').remove()">Cancel</button>
+        <button class="paste-ok-btn" onclick="applyTablePaste('${section}')">Apply</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const ta = overlay.querySelector('#paste-table-input');
+  ta.focus();
+  if (navigator.clipboard?.readText) {
+    navigator.clipboard.readText().then(txt => {
+      if (txt) {
+        ta.value = txt;
+        const el = document.getElementById('paste-table-result');
+        if (el) { el.textContent = 'Clipboard loaded — click Apply to fill the table.'; el.className = 'paste-result ok'; el.style.display = 'block'; }
+      }
+    }).catch(() => {});
+  }
+}
+
+function applyTablePaste(section) {
+  const ta = document.getElementById('paste-table-input');
+  const raw = ta?.value?.trim();
+  if (!raw) { showTablePasteResult('No data pasted.', false); return; }
+
+  // Parse and clean rows — skip non-numeric header rows
+  let rows = raw.split(/\r?\n/)
+    .map(r => r.split('\t'))
+    .filter(cols => cols.some(c => { const v=c.trim().replace(',','.'); return v!=='' && !isNaN(parseFloat(v)); }));
+
+  let filled = 0;
+
+  if (section === 'wcd') {
+    // WCD: dynamic rows — clear and re-add
+    document.getElementById('wcd-body').innerHTML = '';
+    wcdCount = 0;
+    rows.forEach(cols => {
+      // Strip leading label columns
+      let start = 0;
+      for (let i = 0; i < cols.length; i++) {
+        const v = cols[i].trim().replace(',','.');
+        if (!isNaN(parseFloat(v))) { start = i; break; }
+      }
+      const data = cols.slice(start).map(v => v.trim().replace(',','.'));
+      // WCD cols: category(text), n, elec, rate — add a row with numeric data
+      addWCDRow();
+      const rows_el = document.getElementById('wcd-body').querySelectorAll('tr');
+      const last = rows_el[rows_el.length - 1];
+      const inputs = last.querySelectorAll('input,select');
+      data.forEach((v, i) => { if (inputs[i] && !isNaN(parseFloat(v))) { inputs[i].value = parseFloat(v); filled++; } });
+    });
+  }
+  else if (section === 'csd') {
+    // CSD: 7 fixed rows
+    const trEls = Array.from(document.getElementById('csd-body').querySelectorAll('tr:not(.eof)'));
+    rows.slice(0, 7).forEach((cols, ri) => {
+      let start = 0;
+      for (let i = 0; i < cols.length; i++) {
+        const v = cols[i].trim().replace(',','.');
+        if (!isNaN(parseFloat(v))) { start = i; break; }
+      }
+      const data = cols.slice(start);
+      const trEl = trEls[ri]; if (!trEl) return;
+      const inputs = Array.from(trEl.querySelectorAll('input')).filter(inp => !inp.readOnly);
+      data.forEach((v, i) => {
+        const parsed = v.trim().replace(',','.');
+        if (inputs[i] && !isNaN(parseFloat(parsed))) { inputs[i].value = parseFloat(parsed); filled++; }
+      });
+    });
+  }
+  else if (section === 'dsd') {
+    // DSD: dynamic rows — clear and re-add
+    document.getElementById('dsd-body').innerHTML = '';
+    dsdCount = 0;
+    rows.forEach(cols => {
+      let start = 0;
+      for (let i = 0; i < cols.length; i++) {
+        const v = cols[i].trim().replace(',','.');
+        if (!isNaN(parseFloat(v))) { start = i; break; }
+      }
+      const data = cols.slice(start).map(v => v.trim().replace(',','.'));
+      addDSDRow();
+      const rows_el = document.getElementById('dsd-body').querySelectorAll('tr');
+      const last = rows_el[rows_el.length - 1];
+      const inputs = last.querySelectorAll('input,select');
+      data.forEach((v, i) => { if (inputs[i] && !isNaN(parseFloat(v))) { inputs[i].value = parseFloat(v); filled++; } });
+    });
+  }
+
+  const el = document.getElementById('paste-table-result');
+  if (filled > 0) {
+    if (el) { el.textContent = `✓ Applied ${filled} value(s) across ${rows.length} row(s).`; el.className = 'paste-result ok'; el.style.display = 'block'; }
+    setTimeout(() => document.getElementById('paste-overlay-' + section)?.remove(), 1800);
+  } else {
+    if (el) { el.textContent = 'No valid numeric values found. Check your data.'; el.className = 'paste-result err'; el.style.display = 'block'; }
+  }
 }
 
 function urAutoFill(inp, ci, groupStart) {
