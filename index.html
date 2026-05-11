@@ -1546,39 +1546,74 @@ function applyURPaste() {
   const raw = ta.value.trim();
   if (!raw) { showPasteResult('No data pasted.', false); return; }
 
+  const CT_LABELS = ['Residential-Lifeline-Grid','Residential-Non-Lifeline','Commercial-LV',
+    'Industrial-HV','Public-Building-LV','Streetlights-LV','Special-Lighting'];
+
   let rows = raw.split(/\r?\n/).map(r => r.split('\t'));
 
-  // Skip header rows (no numeric values at all)
-  rows = rows.filter(cols => cols.some(v => { const n=v.trim().replace(',','.'); return n!=='' && !isNaN(parseFloat(n)); }));
+  // Remove completely empty rows
+  rows = rows.filter(cols => cols.some(v => v.trim() !== ''));
 
-  // Strip leading non-numeric columns (labels, row numbers)
-  rows = rows.map(cols => {
+  // Skip header/type rows:
+  // 1. Rows with NO numeric values (pure text headers like "4 - Generation Charges")
+  // 2. Rows where ALL non-empty cells are text (like "Numeric, up to 4 decimal places")
+  rows = rows.filter(cols => {
+    const numericCells = cols.filter(v => {
+      const n = v.trim().replace(',','.');
+      return n !== '' && !isNaN(parseFloat(n));
+    });
+    const textCells = cols.filter(v => {
+      const t = v.trim();
+      return t !== '' && isNaN(parseFloat(t.replace(',','.')));
+    });
+    // Keep row only if it has numeric values AND is not a "type description" row
+    // Type rows have text like "Numeric" or "Alphanumeric" and no real data numbers
+    const isTypeRow = textCells.every(t => /numeric|alphanumeric|decimal|integer|text/i.test(t));
+    if (isTypeRow && numericCells.length === 0) return false;
+    if (cols.every(v => /numeric|alphanumeric|decimal|integer/i.test(v.trim()))) return false;
+    return numericCells.length > 0;
+  });
+
+  // Clean each row:
+  rows = rows.map((cols, rowIdx) => {
+    // 1. Strip customer type label (text that matches CT names)
+    cols = cols.filter(v => !CT_LABELS.some(ct => v.trim().toLowerCase().includes(ct.toLowerCase().slice(0,8))));
+
+    // 2. Strip leading row-number column: if first cell is an integer 1-7 matching row position
+    const first = cols[0]?.trim();
+    if (first && /^\d+$/.test(first) && parseInt(first) >= 1 && parseInt(first) <= 7) {
+      cols = cols.slice(1);
+    }
+
+    // 3. Strip any remaining leading non-numeric text columns
     let start = 0;
     for (let i = 0; i < cols.length; i++) {
       const v = cols[i].trim().replace(',','.');
-      if (!isNaN(parseFloat(v))) { start = i; break; }
+      if (v !== '' && !isNaN(parseFloat(v))) { start = i; break; }
     }
     return cols.slice(start);
   });
 
+  // Take only up to 7 data rows
   rows = rows.slice(0, 7);
 
   // ── VALIDATION ──
   if (rows.length === 0) {
-    showPasteResult('❌ No valid data found. Make sure you copied numeric UR data.', false); return;
+    showPasteResult('❌ No valid data found. Make sure you copied UR rate data.', false); return;
   }
   if (rows.length !== 7) {
-    showPasteResult(`❌ Expected 7 rows (one per customer type) but got ${rows.length}. Copy all 7 rows.`, false); return;
+    showPasteResult(`❌ Expected 7 rows (one per customer type) but got ${rows.length}. Please copy all 7 customer type rows.`, false); return;
   }
-  const avgCols = rows.reduce((s, r) => s + r.length, 0) / rows.length;
-  if (avgCols < 10) {
-    showPasteResult(`❌ Data too short (avg ${Math.round(avgCols)} columns). UR needs at least 10 numeric columns.`, false); return;
+  const maxCols = Math.max(...rows.map(r => r.length));
+  if (maxCols < 1) {
+    showPasteResult(`❌ No numeric values found.`, false); return;
   }
-  if (avgCols > 37) {
-    showPasteResult(`❌ Too many columns (avg ${Math.round(avgCols)}). UR only has 32 rate columns (cols 4–35).`, false); return;
+  if (maxCols > 38) {
+    showPasteResult(`❌ Too many columns (${maxCols}). UR only has 32 rate columns (cols 4–35).`, false); return;
   }
+  // Allow partial column paste (e.g. only cols 4-12) — no minimum column requirement
 
-  // ── APPLY ──
+  // ── APPLY — always fill starting from data-col="0" (col 4) ──
   const tbody = document.getElementById('ur-body');
   const trEls = Array.from(tbody.querySelectorAll('tr:not(.eof)'));
   let filled = 0;
@@ -1588,7 +1623,7 @@ function applyURPaste() {
     if (!trEl) return;
     cols.forEach((val, ci) => {
       const parsed = val.trim().replace(',', '.');
-      if (parsed === '') return;
+      if (parsed === '' || parsed === '-') return;
       const num = parseFloat(parsed);
       if (isNaN(num)) return;
       const td = trEl.querySelector(`td[data-col="${ci}"]`);
@@ -1606,7 +1641,7 @@ function applyURPaste() {
   urInitAutoFill();
 
   if (filled > 0) {
-    showPasteResult(`✓ Applied ${filled} value(s) across ${rows.length} rows.`, true);
+    showPasteResult(`✓ Applied ${filled} value(s) across ${rows.length} rows. Auto-fill updated.`, true);
     setTimeout(() => document.querySelector('.paste-modal-overlay')?.remove(), 1800);
   } else {
     showPasteResult('❌ No values filled. Check your data format.', false);
