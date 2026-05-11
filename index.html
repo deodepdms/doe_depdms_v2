@@ -1546,35 +1546,39 @@ function applyURPaste() {
   const raw = ta.value.trim();
   if (!raw) { showPasteResult('No data pasted.', false); return; }
 
-  const CT_NAMES = ['Residential-Lifeline-Grid','Residential-Non-Lifeline','Commercial-LV',
-    'Industrial-HV','Public-Building-LV','Streetlights-LV','Special-Lighting'];
-
-  // Split into rows, remove truly empty lines
   let rows = raw.split(/\r?\n/).map(r => r.split('\t'));
 
-  // Auto-detect and skip header rows:
-  // A row is a header if it has NO numeric values at all
-  rows = rows.filter(cols => {
-    const vals = cols.map(c => c.trim());
-    // Keep row if at least one cell is numeric (or 0)
-    return vals.some(v => v !== '' && !isNaN(parseFloat(v.replace(',','.'))));
-  });
+  // Skip header rows (no numeric values at all)
+  rows = rows.filter(cols => cols.some(v => { const n=v.trim().replace(',','.'); return n!=='' && !isNaN(parseFloat(n)); }));
 
-  // For each row, auto-strip leading non-numeric columns
-  // (customer type labels, row numbers, etc.)
+  // Strip leading non-numeric columns (labels, row numbers)
   rows = rows.map(cols => {
     let start = 0;
     for (let i = 0; i < cols.length; i++) {
       const v = cols[i].trim().replace(',','.');
-      // Skip if it's a label (non-numeric and not '0')
-      if (v === '' || (!isNaN(parseFloat(v)))) { start = i; break; }
+      if (!isNaN(parseFloat(v))) { start = i; break; }
     }
     return cols.slice(start);
   });
 
-  // Only take up to 7 data rows
   rows = rows.slice(0, 7);
 
+  // ── VALIDATION ──
+  if (rows.length === 0) {
+    showPasteResult('❌ No valid data found. Make sure you copied numeric UR data.', false); return;
+  }
+  if (rows.length !== 7) {
+    showPasteResult(`❌ Expected 7 rows (one per customer type) but got ${rows.length}. Copy all 7 rows.`, false); return;
+  }
+  const avgCols = rows.reduce((s, r) => s + r.length, 0) / rows.length;
+  if (avgCols < 10) {
+    showPasteResult(`❌ Data too short (avg ${Math.round(avgCols)} columns). UR needs at least 10 numeric columns.`, false); return;
+  }
+  if (avgCols > 37) {
+    showPasteResult(`❌ Too many columns (avg ${Math.round(avgCols)}). UR only has 32 rate columns (cols 4–35).`, false); return;
+  }
+
+  // ── APPLY ──
   const tbody = document.getElementById('ur-body');
   const trEls = Array.from(tbody.querySelectorAll('tr:not(.eof)'));
   let filled = 0;
@@ -1582,19 +1586,15 @@ function applyURPaste() {
   rows.forEach((cols, pasteRi) => {
     const trEl = trEls[pasteRi];
     if (!trEl) return;
-
     cols.forEach((val, ci) => {
       const parsed = val.trim().replace(',', '.');
       if (parsed === '') return;
       const num = parseFloat(parsed);
       if (isNaN(num)) return;
-
       const td = trEl.querySelector(`td[data-col="${ci}"]`);
       if (!td) return;
       const inp = td.querySelector('input');
       if (!inp) return;
-
-      // Temporarily unlock readonly for paste, then re-lock after
       const wasReadonly = inp.readOnly;
       if (wasReadonly) inp.removeAttribute('readonly');
       inp.value = num;
@@ -1603,17 +1603,15 @@ function applyURPaste() {
     });
   });
 
-  // Re-run auto-fill from pasted trigger values
   urInitAutoFill();
 
   if (filled > 0) {
-    showPasteResult(`✓ Applied ${filled} value(s) across ${rows.length} row(s).`, true);
+    showPasteResult(`✓ Applied ${filled} value(s) across ${rows.length} rows.`, true);
     setTimeout(() => document.querySelector('.paste-modal-overlay')?.remove(), 1800);
   } else {
-    showPasteResult('No valid numeric values found. Check your data.', false);
+    showPasteResult('❌ No values filled. Check your data format.', false);
   }
 }
-
 function showPasteResult(msg, ok) {
   const el = document.getElementById('paste-ur-result') || document.getElementById('paste-table-result');
   if (!el) return;
@@ -1655,81 +1653,80 @@ function pasteTableFromClipboard(section) {
 function applyTablePaste(section) {
   const ta = document.getElementById('paste-table-input');
   const raw = ta?.value?.trim();
-  if (!raw) { showTablePasteResult('No data pasted.', false); return; }
+  const resultEl = document.getElementById('paste-table-result');
+  function showErr(msg) { if(resultEl){resultEl.textContent=msg;resultEl.className='paste-result err';resultEl.style.display='block';} }
+  function showOk(msg)  { if(resultEl){resultEl.textContent=msg;resultEl.className='paste-result ok'; resultEl.style.display='block';} }
 
-  // Parse and clean rows — skip non-numeric header rows
+  if (!raw) { showErr('No data pasted.'); return; }
+
   let rows = raw.split(/\r?\n/)
     .map(r => r.split('\t'))
     .filter(cols => cols.some(c => { const v=c.trim().replace(',','.'); return v!=='' && !isNaN(parseFloat(v)); }));
 
+  // Strip leading non-numeric columns per row
+  rows = rows.map(cols => {
+    let start = 0;
+    for (let i = 0; i < cols.length; i++) {
+      const v = cols[i].trim().replace(',','.');
+      if (!isNaN(parseFloat(v))) { start = i; break; }
+    }
+    return cols.slice(start);
+  });
+
+  if (rows.length === 0) { showErr('❌ No valid numeric data found.'); return; }
+
+  // Section-specific validation
+  const sectionCols = { wcd: 3, csd: 4, dsd: 7 };
+  const sectionRows = { wcd: null, csd: 7, dsd: null }; // null = dynamic
+  const minCols = sectionCols[section] || 2;
+  const expectedRows = sectionRows[section];
+  const avgCols = rows.reduce((s, r) => s + r.length, 0) / rows.length;
+
+  if (avgCols < minCols) {
+    showErr(`❌ Data too short (avg ${Math.round(avgCols)} columns). ${section.toUpperCase()} needs at least ${minCols} columns.`); return;
+  }
+  if (expectedRows && rows.length !== expectedRows) {
+    showErr(`❌ Expected ${expectedRows} rows but got ${rows.length}. Copy all ${expectedRows} customer type rows.`); return;
+  }
+
   let filled = 0;
 
   if (section === 'wcd') {
-    // WCD: dynamic rows — clear and re-add
     document.getElementById('wcd-body').innerHTML = '';
     wcdCount = 0;
     rows.forEach(cols => {
-      // Strip leading label columns
-      let start = 0;
-      for (let i = 0; i < cols.length; i++) {
-        const v = cols[i].trim().replace(',','.');
-        if (!isNaN(parseFloat(v))) { start = i; break; }
-      }
-      const data = cols.slice(start).map(v => v.trim().replace(',','.'));
-      // WCD cols: category(text), n, elec, rate — add a row with numeric data
       addWCDRow();
-      const rows_el = document.getElementById('wcd-body').querySelectorAll('tr');
-      const last = rows_el[rows_el.length - 1];
-      const inputs = last.querySelectorAll('input,select');
-      data.forEach((v, i) => { if (inputs[i] && !isNaN(parseFloat(v))) { inputs[i].value = parseFloat(v); filled++; } });
+      const last = document.getElementById('wcd-body').querySelectorAll('tr');
+      const inputs = last[last.length-1].querySelectorAll('input,select');
+      cols.forEach((v,i) => { const n=parseFloat(v.replace(',','.')); if(inputs[i]&&!isNaN(n)){inputs[i].value=n;filled++;} });
     });
   }
   else if (section === 'csd') {
-    // CSD: 7 fixed rows
     const trEls = Array.from(document.getElementById('csd-body').querySelectorAll('tr:not(.eof)'));
-    rows.slice(0, 7).forEach((cols, ri) => {
-      let start = 0;
-      for (let i = 0; i < cols.length; i++) {
-        const v = cols[i].trim().replace(',','.');
-        if (!isNaN(parseFloat(v))) { start = i; break; }
-      }
-      const data = cols.slice(start);
-      const trEl = trEls[ri]; if (!trEl) return;
-      const inputs = Array.from(trEl.querySelectorAll('input')).filter(inp => !inp.readOnly);
-      data.forEach((v, i) => {
-        const parsed = v.trim().replace(',','.');
-        if (inputs[i] && !isNaN(parseFloat(parsed))) { inputs[i].value = parseFloat(parsed); filled++; }
-      });
+    rows.slice(0,7).forEach((cols,ri) => {
+      const trEl = trEls[ri]; if(!trEl) return;
+      const inputs = Array.from(trEl.querySelectorAll('input')).filter(inp=>!inp.readOnly);
+      cols.forEach((v,i) => { const n=parseFloat(v.replace(',','.')); if(inputs[i]&&!isNaN(n)){inputs[i].value=n;filled++;} });
     });
   }
   else if (section === 'dsd') {
-    // DSD: dynamic rows — clear and re-add
     document.getElementById('dsd-body').innerHTML = '';
     dsdCount = 0;
     rows.forEach(cols => {
-      let start = 0;
-      for (let i = 0; i < cols.length; i++) {
-        const v = cols[i].trim().replace(',','.');
-        if (!isNaN(parseFloat(v))) { start = i; break; }
-      }
-      const data = cols.slice(start).map(v => v.trim().replace(',','.'));
       addDSDRow();
-      const rows_el = document.getElementById('dsd-body').querySelectorAll('tr');
-      const last = rows_el[rows_el.length - 1];
-      const inputs = last.querySelectorAll('input,select');
-      data.forEach((v, i) => { if (inputs[i] && !isNaN(parseFloat(v))) { inputs[i].value = parseFloat(v); filled++; } });
+      const last = document.getElementById('dsd-body').querySelectorAll('tr');
+      const inputs = last[last.length-1].querySelectorAll('input,select');
+      cols.forEach((v,i) => { const n=parseFloat(v.replace(',','.')); if(inputs[i]&&!isNaN(n)){inputs[i].value=n;filled++;} });
     });
   }
 
-  const el = document.getElementById('paste-table-result');
   if (filled > 0) {
-    if (el) { el.textContent = `✓ Applied ${filled} value(s) across ${rows.length} row(s).`; el.className = 'paste-result ok'; el.style.display = 'block'; }
-    setTimeout(() => document.getElementById('paste-overlay-' + section)?.remove(), 1800);
+    showOk(`✓ Applied ${filled} value(s) across ${rows.length} row(s).`);
+    setTimeout(() => document.getElementById('paste-overlay-'+section)?.remove(), 1800);
   } else {
-    if (el) { el.textContent = 'No valid numeric values found. Check your data.'; el.className = 'paste-result err'; el.style.display = 'block'; }
+    showErr('❌ No values filled. Data may not match this section format.');
   }
 }
-
 function urAutoFill(inp, ci, groupStart) {
   const tbody = document.getElementById('ur-body');
   const rows = tbody.querySelectorAll('tr:not(.eof)');
