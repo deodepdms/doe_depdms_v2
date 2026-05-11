@@ -1546,93 +1546,82 @@ function applyURPaste() {
   const raw = ta.value.trim();
   if (!raw) { showPasteResult('No data pasted.', false); return; }
 
-  const CT_LABELS = ['Residential-Lifeline-Grid','Residential-Non-Lifeline','Commercial-LV',
-    'Industrial-HV','Public-Building-LV','Streetlights-LV','Special-Lighting'];
+  // ── STEP 1: Split into rows ──
+  let allRows = raw.split(/\r?\n/).map(r => r.split('\t'));
 
-  let rows = raw.split(/\r?\n/).map(r => r.split('\t'));
+  // ── STEP 2: Filter to only DATA rows ──
+  // A data row must have at least one cell that is a pure number (int or decimal)
+  // This automatically skips:
+  //   - Column header rows  ("4 - Generation Charges", "Customer Type" etc.)
+  //   - Type description rows ("Numeric, up to 4 decimal places" etc.)
+  //   - Completely empty rows
+  const isNumber = v => { const n = v.trim().replace(',','.'); return n !== '' && n !== '-' && !isNaN(parseFloat(n)) && isFinite(n); };
 
-  // Remove completely empty rows
-  rows = rows.filter(cols => cols.some(v => v.trim() !== ''));
-
-  // Skip header/type rows:
-  // 1. Rows with NO numeric values (pure text headers like "4 - Generation Charges")
-  // 2. Rows where ALL non-empty cells are text (like "Numeric, up to 4 decimal places")
-  rows = rows.filter(cols => {
-    const numericCells = cols.filter(v => {
-      const n = v.trim().replace(',','.');
-      return n !== '' && !isNaN(parseFloat(n));
-    });
-    const textCells = cols.filter(v => {
-      const t = v.trim();
-      return t !== '' && isNaN(parseFloat(t.replace(',','.')));
-    });
-    // Keep row only if it has numeric values AND is not a "type description" row
-    // Type rows have text like "Numeric" or "Alphanumeric" and no real data numbers
-    const isTypeRow = textCells.every(t => /numeric|alphanumeric|decimal|integer|text/i.test(t));
-    if (isTypeRow && numericCells.length === 0) return false;
-    if (cols.every(v => /numeric|alphanumeric|decimal|integer/i.test(v.trim()))) return false;
-    return numericCells.length > 0;
+  let dataRows = allRows.filter(cols => {
+    // Count pure numeric cells
+    const numCount = cols.filter(v => isNumber(v)).length;
+    // Count non-empty text cells  
+    const totalNonEmpty = cols.filter(v => v.trim() !== '').length;
+    // A data row has numeric cells; a header row has only text
+    return numCount > 0;
   });
 
-  // Clean each row:
-  rows = rows.map((cols, rowIdx) => {
-    // 1. Strip customer type label (text that matches CT names)
-    cols = cols.filter(v => !CT_LABELS.some(ct => v.trim().toLowerCase().includes(ct.toLowerCase().slice(0,8))));
-
-    // 2. Strip leading row-number column: if first cell is an integer 1-7 matching row position
-    const first = cols[0]?.trim();
-    if (first && /^\d+$/.test(first) && parseInt(first) >= 1 && parseInt(first) <= 7) {
-      cols = cols.slice(1);
+  // ── STEP 3: Strip leading label columns from each row ──
+  // Remove: customer type names, row numbers (1-7), any leading text
+  dataRows = dataRows.map(cols => {
+    // Remove cells that are customer type labels (long text)
+    cols = cols.filter(v => {
+      const t = v.trim();
+      // Keep if numeric, keep if empty, remove if it looks like a CT label (long text with letters)
+      if (isNumber(t) || t === '') return true;
+      if (t.length > 3 && /[a-zA-Z]/.test(t)) return false;
+      return true;
+    });
+    // Strip leading row number (1-7)
+    if (cols.length > 0) {
+      const first = cols[0].trim();
+      if (/^\d+$/.test(first) && +first >= 1 && +first <= 7) cols = cols.slice(1);
     }
-
-    // 3. Strip any remaining leading non-numeric text columns
+    // Strip any remaining leading non-numeric cells
     let start = 0;
     for (let i = 0; i < cols.length; i++) {
-      const v = cols[i].trim().replace(',','.');
-      if (v !== '' && !isNaN(parseFloat(v))) { start = i; break; }
+      if (isNumber(cols[i]) || cols[i].trim() === '') { start = i; break; }
     }
     return cols.slice(start);
   });
 
-  // Take only up to 7 data rows
-  rows = rows.slice(0, 7);
+  // Take max 7 rows
+  dataRows = dataRows.slice(0, 7);
 
   // ── VALIDATION ──
-  if (rows.length === 0) {
-    showPasteResult('❌ No valid data found. Make sure you copied UR rate data.', false); return;
+  if (dataRows.length === 0) {
+    showPasteResult('❌ No data rows found. Check your copied data.', false); return;
   }
-  if (rows.length !== 7) {
-    showPasteResult(`❌ Expected 7 rows (one per customer type) but got ${rows.length}. Please copy all 7 customer type rows.`, false); return;
+  if (dataRows.length !== 7) {
+    showPasteResult(`❌ Found ${dataRows.length} data row(s) but need exactly 7 (one per customer type). Copy all 7 rows.`, false); return;
   }
-  const maxCols = Math.max(...rows.map(r => r.length));
-  if (maxCols < 1) {
-    showPasteResult(`❌ No numeric values found.`, false); return;
-  }
+  const maxCols = Math.max(...dataRows.map(r => r.length));
   if (maxCols > 38) {
-    showPasteResult(`❌ Too many columns (${maxCols}). UR only has 32 rate columns (cols 4–35).`, false); return;
+    showPasteResult(`❌ Too many columns (${maxCols}). UR only has 32 rate columns.`, false); return;
   }
-  // Allow partial column paste (e.g. only cols 4-12) — no minimum column requirement
 
-  // ── APPLY — always fill starting from data-col="0" (col 4) ──
+  // ── APPLY ──
   const tbody = document.getElementById('ur-body');
   const trEls = Array.from(tbody.querySelectorAll('tr:not(.eof)'));
   let filled = 0;
 
-  rows.forEach((cols, pasteRi) => {
-    const trEl = trEls[pasteRi];
+  dataRows.forEach((cols, ri) => {
+    const trEl = trEls[ri];
     if (!trEl) return;
     cols.forEach((val, ci) => {
-      const parsed = val.trim().replace(',', '.');
-      if (parsed === '' || parsed === '-') return;
-      const num = parseFloat(parsed);
-      if (isNaN(num)) return;
+      if (!isNumber(val)) return;
       const td = trEl.querySelector(`td[data-col="${ci}"]`);
       if (!td) return;
       const inp = td.querySelector('input');
       if (!inp) return;
       const wasReadonly = inp.readOnly;
       if (wasReadonly) inp.removeAttribute('readonly');
-      inp.value = num;
+      inp.value = parseFloat(val.trim().replace(',','.'));
       if (wasReadonly && currentRole !== 'admin') inp.setAttribute('readonly', true);
       filled++;
     });
@@ -1641,12 +1630,13 @@ function applyURPaste() {
   urInitAutoFill();
 
   if (filled > 0) {
-    showPasteResult(`✓ Applied ${filled} value(s) across ${rows.length} rows. Auto-fill updated.`, true);
+    showPasteResult(`✓ Filled ${filled} value(s) across ${dataRows.length} rows. Auto-fill updated.`, true);
     setTimeout(() => document.querySelector('.paste-modal-overlay')?.remove(), 1800);
   } else {
-    showPasteResult('❌ No values filled. Check your data format.', false);
+    showPasteResult('❌ No values filled. Check your data.', false);
   }
 }
+
 function showPasteResult(msg, ok) {
   const el = document.getElementById('paste-ur-result') || document.getElementById('paste-table-result');
   if (!el) return;
